@@ -134,7 +134,6 @@ class CoherenceBridge(
      * Release all resources and notify the [BridgeContext] to perform its own cleanup.
      */
     fun cleanupPhase() {
-        purchasingListener = null
         bridgeContext?.cleanup()
         bridgeContext = null
     }
