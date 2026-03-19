@@ -66,7 +66,7 @@ class CoherenceBridge(
     /**
      * Initialize the bridge with the provided [BridgeContext].
      * Must be called before [reportPhase] or [cleanupPhase] to ensure the host
-     * runtime receives results and cleanup notifications.  [preparePhase] and the
+     * runtime receives results and cleanup notifications. [preparePhase] and the
      * execute methods operate independently of [BridgeContext] and may be called
      * without a prior [initPhase].
      */
