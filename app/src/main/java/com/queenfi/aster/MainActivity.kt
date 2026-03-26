@@ -43,6 +43,9 @@ private const val TAG = "KOTLIN_INTEGRATION"
 private const val PREFS_NAME = "iap_cache"
 private const val PREFS_KEY_PRODUCTS = "cached_product_skus"
 private const val PREFS_KEY_SUBSCRIPTION = "subscription_active"
+private const val PREFS_KEY_USER_ID = "cached_user_id"
+private const val PREFS_KEY_MARKETPLACE = "cached_marketplace"
+private const val PREFS_KEY_RECEIPT_IDS = "cached_receipt_ids"
 
 class MainActivity : AppCompatActivity() {
 
@@ -115,6 +118,36 @@ class MainActivity : AppCompatActivity() {
         Log.v(TAG, "Cached subscription active = $active")
     }
 
+    /** Persist the current user ID and marketplace to SharedPreferences. */
+    private fun saveUserData(userId: String, marketplace: String) {
+        prefs.edit()
+            .putString(PREFS_KEY_USER_ID, userId)
+            .putString(PREFS_KEY_MARKETPLACE, marketplace)
+            .apply()
+        Log.v(TAG, "Saved user data: userId=$userId marketplace=$marketplace")
+    }
+
+    /** Persist the set of active (non-cancelled) receipt IDs to SharedPreferences. */
+    private fun saveReceiptIds(receiptIds: Set<String>) {
+        prefs.edit().putStringSet(PREFS_KEY_RECEIPT_IDS, receiptIds).apply()
+        Log.v(TAG, "Saved ${receiptIds.size} active receipt ID(s)")
+    }
+
+    /**
+     * Reload userId and marketplace from SharedPreferences into the in-memory
+     * fields.  Called when the Appstore returns a FAILED status so the app
+     * continues to function with the last known identity.
+     */
+    private fun restoreCachedUserData() {
+        val userId = prefs.getString(PREFS_KEY_USER_ID, null)
+        val marketplace = prefs.getString(PREFS_KEY_MARKETPLACE, null)
+        if (userId != null && marketplace != null) {
+            currentUserId = userId
+            currentMarketplace = marketplace
+            Log.v(TAG, "Restored user data from cache: userId=$userId marketplace=$marketplace")
+        }
+    }
+
     /**
      * Update the subscription status UI. Call once after determining whether
      * the user has an active subscription (from live Appstore or from cache).
@@ -184,6 +217,7 @@ class MainActivity : AppCompatActivity() {
                 UserDataResponse.RequestStatus.SUCCESSFUL -> {
                     currentUserId = response.userData.userId
                     currentMarketplace = response.userData.marketplace
+                    saveUserData(currentUserId, currentMarketplace)
                     Log.i(TAG, buildString {
                         appendLine("┌── UserData ──────────────────────────────")
                         appendLine("│  UserID     : ${response.userData.userId}")
@@ -202,6 +236,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 UserDataResponse.RequestStatus.FAILED, null -> {
                     Log.e(TAG, "getUserData failed; falling back to cached state")
+                    restoreCachedUserData()
                     restoreCachedSubscriptionState()
                 }
             }
