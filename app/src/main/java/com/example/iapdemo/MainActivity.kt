@@ -74,6 +74,18 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
 
+        // Restart the purchasing agent listener before the network firewall check.
+        PurchasingService.registerListener(this, purchasingListener)
+        Log.v(TAG, "Restarting PurchasingListener before network check")
+
+        // Firewall check: verify network access before issuing any IAP queries.
+        if (!isNetworkAvailable(this)) {
+            Log.w(TAG, "Network unavailable; skipping IAP queries and using cached state")
+            Toast.makeText(this, "No network connection. Using cached data.", Toast.LENGTH_LONG).show()
+            restoreCachedSubscriptionState()
+            return
+        }
+
         //getUserData() will query the Appstore for the Users information
         PurchasingService.getUserData()
 
