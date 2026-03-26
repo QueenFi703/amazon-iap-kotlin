@@ -31,6 +31,8 @@ import com.amazon.device.iap.model.ProductDataResponse
 import com.amazon.device.iap.model.PurchaseResponse
 import com.amazon.device.iap.model.FulfillmentResult
 import com.amazon.device.iap.model.PurchaseUpdatesResponse
+import com.amazon.device.iap.model.Receipt
+import com.amazon.device.iap.model.Product
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.queenfi.aster.databinding.ActivityMainBinding
 import java.util.*
@@ -139,6 +141,40 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ── Publish & print helpers ──────────────────────────────────────────────
+
+    /**
+     * Print a structured summary of [receipt] to the log.
+     * Covers receipt ID, SKU, type, purchase date, and cancellation state.
+     */
+    private fun printReceiptDetails(receipt: Receipt) {
+        Log.i(TAG, buildString {
+            appendLine("┌── Receipt ──────────────────────────────")
+            appendLine("│  ID       : ${receipt.receiptId}")
+            appendLine("│  SKU      : ${receipt.sku}")
+            appendLine("│  Type     : ${receipt.productType}")
+            appendLine("│  Purchased: ${receipt.purchaseDate}")
+            appendLine("│  Canceled : ${receipt.isCanceled}")
+            append    ("└─────────────────────────────────────────")
+        })
+    }
+
+    /**
+     * Print a structured summary of [product] to the log.
+     * Covers title, SKU, type, price, and description.
+     */
+    private fun printProductDetails(product: Product) {
+        Log.i(TAG, buildString {
+            appendLine("┌── Product ──────────────────────────────")
+            appendLine("│  Title      : ${product.title}")
+            appendLine("│  SKU        : ${product.sku}")
+            appendLine("│  Type       : ${product.productType}")
+            appendLine("│  Price      : ${product.price}")
+            appendLine("│  Description: ${product.description}")
+            append    ("└─────────────────────────────────────────")
+        })
+    }
+
     // ── PurchasingListener ───────────────────────────────────────────────────
 
     private var purchasingListener: PurchasingListener = object : PurchasingListener {
@@ -148,7 +184,12 @@ class MainActivity : AppCompatActivity() {
                 UserDataResponse.RequestStatus.SUCCESSFUL -> {
                     currentUserId = response.userData.userId
                     currentMarketplace = response.userData.marketplace
-                    Log.v(TAG, response.userData.toString())
+                    Log.i(TAG, buildString {
+                        appendLine("┌── UserData ──────────────────────────────")
+                        appendLine("│  UserID     : ${response.userData.userId}")
+                        appendLine("│  Marketplace: ${response.userData.marketplace}")
+                        append    ("└──────────────────────────────────────────")
+                    })
                 }
                 UserDataResponse.RequestStatus.NOT_SUPPORTED -> {
                     // Running outside the Amazon Appstore / sandbox agent.
@@ -173,11 +214,7 @@ class MainActivity : AppCompatActivity() {
                     Log.v(TAG, "ProductDataResponse.RequestStatus SUCCESSFUL")
                     val products = productDataResponse.productData
                     for (key in products.keys) {
-                        val product = products[key]
-                        Log.v(
-                            TAG,
-                            "Product: ${product!!.title} \n Type: ${product.productType}\n SKU: ${product.sku}\n Price: ${product.price}\n Description: ${product.description}\n"
-                        )
+                        products[key]?.let { printProductDetails(it) }
                     }
                     binding.productsRecyclerView.adapter = ProductAdapter(products.values.toList())
                     // Cache the available SKUs for offline / outside-sandbox use.
@@ -202,7 +239,7 @@ class MainActivity : AppCompatActivity() {
             when (purchaseResponse.requestStatus) {
                 PurchaseResponse.RequestStatus.SUCCESSFUL -> {
                     Log.v(TAG, "PurchaseResponse.RequestStatus SUCCESSFUL")
-                    Log.v(TAG, purchaseResponse.receipt.toString())
+                    printReceiptDetails(purchaseResponse.receipt)
                     PurchasingService.notifyFulfillment(
                         purchaseResponse.receipt.receiptId,
                         FulfillmentResult.FULFILLED
@@ -224,7 +261,7 @@ class MainActivity : AppCompatActivity() {
                     Log.v(TAG, "PurchaseUpdatesResponse.RequestStatus SUCCESSFUL")
                     var hasActiveSubscription = false
                     for (receipt in response.receipts) {
-                        Log.v(TAG, receipt.toString())
+                        printReceiptDetails(receipt)
                         if (!receipt.isCanceled) {
                             hasActiveSubscription = true
                         }
