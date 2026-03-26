@@ -16,13 +16,13 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-package com.example.iapdemo
+package com.queenfi.aster
 
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.amazon.device.iap.model.Product
-import com.example.iapdemo.databinding.ItemProductBinding
+import com.queenfi.aster.databinding.ItemProductBinding
 
 class ProductAdapter(private val products: List<Product>) :
     RecyclerView.Adapter<ProductAdapter.ProductViewHolder>() {

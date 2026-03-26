@@ -16,7 +16,7 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-package com.example.iapdemo
+package com.queenfi.aster
 
 import android.content.Context
 import android.net.ConnectivityManager

@@ -16,7 +16,7 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-package com.example.iapdemo
+package com.queenfi.aster
 
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
@@ -32,7 +32,7 @@ import com.amazon.device.iap.model.PurchaseResponse
 import com.amazon.device.iap.model.FulfillmentResult
 import com.amazon.device.iap.model.PurchaseUpdatesResponse
 import androidx.recyclerview.widget.LinearLayoutManager
-import com.example.iapdemo.databinding.ActivityMainBinding
+import com.queenfi.aster.databinding.ActivityMainBinding
 import java.util.*
 
 const val parentSKU = "techsubscription"
