@@ -19,6 +19,7 @@
 plugins {
     id 'com.android.library'
     id 'kotlin-android'
+    id 'maven-publish'
 }
 
 android {
@@ -48,4 +49,41 @@ dependencies {
     implementation 'com.amazon.device:amazon-appstore-sdk:3.0.3'
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'io.mockk:mockk:1.13.8'
+}
+
+group = 'com.queenfi.aster'
+version = '0.1.0'
+
+afterEvaluate {
+    publishing {
+        publications {
+            release(MavenPublication) {
+                from components.release
+                groupId = 'com.queenfi.aster'
+                artifactId = 'bridge'
+                version = '0.1.0'
+            }
+        }
+        repositories {
+            maven {
+                name = 'CodeArtifact'
+                // URL is constructed from env vars injected by the CI workflow.
+                // If any variable is absent the repository URL will be a placeholder
+                // and the publish task will fail fast with a clear error.
+                def domain      = System.env.CODEARTIFACT_DOMAIN      ?: ''
+                def owner       = System.env.CODEARTIFACT_DOMAIN_OWNER ?: ''
+                def region      = System.env.AWS_REGION               ?: 'us-east-1'
+                def repository  = System.env.CODEARTIFACT_REPOSITORY  ?: ''
+                if (domain && owner && repository) {
+                    url = "https://${domain}-${owner}.d.codeartifact.${region}.amazonaws.com/maven/${repository}/"
+                } else {
+                    url = 'https://codeartifact.placeholder.invalid/maven/placeholder/'
+                }
+                credentials {
+                    username = 'aws'
+                    password = System.env.CODEARTIFACT_AUTH_TOKEN ?: ''
+                }
+            }
+        }
+    }
 }
