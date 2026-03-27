@@ -42,6 +42,12 @@ android {
     testOptions {
         unitTests.returnDefaultValues = true
     }
+
+    publishing {
+        singleVariant('release') {
+            withSourcesJar()
+        }
+    }
 }
 
 dependencies {
@@ -55,7 +61,7 @@ afterEvaluate {
     publishing {
         publications {
             release(MavenPublication) {
-                from components.release
+                from components['release']
 
                 groupId    = 'com.queenfi.aster'
                 artifactId = 'bridge'
@@ -66,20 +72,39 @@ afterEvaluate {
         repositories {
             maven {
                 name = 'CodeArtifact'
-                // URL constructed from env vars supplied by the CI workflow:
-                // CODEARTIFACT_DOMAIN, CODEARTIFACT_DOMAIN_OWNER,
-                // CODEARTIFACT_REPOSITORY (region is always us-east-1)
-                def domain     = System.getenv('CODEARTIFACT_DOMAIN')      ?: ''
-                def owner      = System.getenv('CODEARTIFACT_DOMAIN_OWNER') ?: ''
-                def repository = System.getenv('CODEARTIFACT_REPOSITORY')  ?: ''
-                url = uri(
-                    domain && owner && repository
-                        ? "https://${domain}-${owner}.d.codeartifact.us-east-1.amazonaws.com/maven/${repository}/"
-                        : "file://${rootProject.buildDir}/local-maven-repo"
-                )
+                // Fail fast during configuration if a publish task is invoked
+                // without the required CodeArtifact environment variables.
+                def domain     = System.getenv('CODEARTIFACT_DOMAIN')
+                def owner      = System.getenv('CODEARTIFACT_DOMAIN_OWNER')
+                def region     = System.getenv('AWS_REGION') ?: 'us-east-1'
+                def repository = System.getenv('CODEARTIFACT_REPOSITORY')
+                def authToken  = System.getenv('CODEARTIFACT_AUTH_TOKEN')
+
+                def missingEnv = []
+                if (!domain)     missingEnv << 'CODEARTIFACT_DOMAIN'
+                if (!owner)      missingEnv << 'CODEARTIFACT_DOMAIN_OWNER'
+                if (!repository) missingEnv << 'CODEARTIFACT_REPOSITORY'
+                if (!authToken)  missingEnv << 'CODEARTIFACT_AUTH_TOKEN'
+
+                if (!missingEnv.isEmpty()) {
+                    def isPublishRequested = gradle.startParameter.taskNames.any {
+                        it.toLowerCase().startsWith('publish')
+                    }
+                    if (isPublishRequested) {
+                        throw new GradleException(
+                            "Missing required environment variables for CodeArtifact publishing: ${missingEnv.join(', ')}"
+                        )
+                    } else {
+                        // Do not register the CodeArtifact repository when configuration
+                        // is incomplete and no publish task is requested.
+                        return
+                    }
+                }
+
+                url = uri("https://${domain}-${owner}.d.codeartifact.${region}.amazonaws.com/maven/${repository}/")
                 credentials {
                     username = 'aws'
-                    password = System.getenv('CODEARTIFACT_AUTH_TOKEN') ?: ''
+                    password = authToken
                 }
             }
         }
