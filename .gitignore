@@ -31,3 +31,6 @@ google-services.json
 
 # Android Profiling
 *.hprof
+
+# Self-healing agent runtime output (generated during CI, stored in cache/artifact)
+ci/self_healing/memory.json
