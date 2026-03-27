@@ -207,12 +207,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APK="$(ls -1 _artifacts/app/build/outputs/apk/release/*.apk 2>/dev/null | head -n 1)"
-          if [ -z "${APK}" ]; then
-            echo "No release APK found in _artifacts — skipping Device Farm upload."
-            exit 0
+          APK_PATTERN="*/apk/release/*release*.apk"
+          mapfile -t APK_CANDIDATES < <(find _artifacts -type f -path "${APK_PATTERN}")
+          if [ "${#APK_CANDIDATES[@]}" -eq 0 ]; then
+            echo "No release APK found in build outputs matching pattern '${APK_PATTERN}'." && exit 1
+          elif [ "${#APK_CANDIDATES[@]}" -gt 1 ]; then
+            echo "Expected exactly one release APK, but found ${#APK_CANDIDATES[@]} candidates:" >&2
+            printf '  %s\n' "${APK_CANDIDATES[@]}" >&2
+            exit 1
           fi
-          echo "Using APK: ${APK}"
+          APK="${APK_CANDIDATES[0]}"
+          echo "Uploading release APK: ${APK}"
 
           UPLOAD_ARN="$(aws devicefarm create-upload \
             --project-arn "${DEVICE_FARM_PROJECT_ARN}" \
