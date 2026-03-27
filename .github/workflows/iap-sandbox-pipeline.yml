@@ -99,8 +99,14 @@ jobs:
         run: |
           # Each scenario runs the matching subset of CoherenceBridgeTest.
           # IapService is mocked (MockK) so no real Appstore connection is needed.
-          # --tests accepts a comma-separated list for multiple patterns.
-          ./gradlew :bridge:test --no-daemon --tests "${TEST_FILTER}"
+          # Split TEST_FILTER on commas and pass multiple --tests flags
+          # (Gradle does not split comma-separated lists itself).
+          GRADLE_ARGS=(':bridge:test' '--no-daemon')
+          IFS=',' read -ra TEST_PATTERNS <<< "${TEST_FILTER}"
+          for pattern in "${TEST_PATTERNS[@]}"; do
+            GRADLE_ARGS+=('--tests' "${pattern}")
+          done
+          ./gradlew "${GRADLE_ARGS[@]}"
 
       - name: Upload JUnit test report (${{ matrix.test-scenario }})
         if: always()
