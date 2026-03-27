@@ -1,48 +1,378 @@
-name: IAP Sandbox Pipeline  
-trigger:  
-  branches:  
-    include:  
-      - main  
-jobs:  
-  sandbox-validation:  
-    runs-on: ubuntu-latest  
-    steps:  
-      - checkout: {}  
-      - run: echo "Validating..."  
-  
-sandbox-graduation-check:  
-    runs-on: ubuntu-latest  
-    needs: [sandbox-validation, self-healing-agent]  
-    steps:  
-      - run: |  
-          if [[ ${{ needs.sandbox-validation.result }} == 'success' && ${{ needs.full-suite.result }} == 'success' ]]; then  
-            echo "All validations passed!";  
-          elif [[ ${{ needs.self-healing-agent.result }} == 'success' ]]; then  
-            echo "Recovered from flaky test!";  
-          else  
-            echo "Check failed!";  
-            exit 1;  
-          fi  
-  
-  self-healing-agent:  
-    runs-on: ubuntu-latest  
-    needs: sandbox-validation  
-    if: failure()  
-    strategy:  
-      matrix:  
-        scenario:  
-          - scenario1  
-          - scenario2  
-    retries: 1  
-    continue-on-error: true  
-    steps:  
-      - run: ./gradlew test --info  
-        env:  
-          RESULT: ${{ job.status }}  
-      - run: |  
-          if [[ $RESULT == 'success' ]]; then  
-            echo "Retry succeeded; classifying as flaky.";  
-          else  
-            echo "Retry failed, marking job as failed.";  
-            exit 1;  
-          fi  
+name: IAP Sandbox Pipeline
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+env:
+  JAVA_VERSION: "17"
+  JAVA_DISTRIBUTION: "temurin"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Job 1: Build
+# Compiles the project and uploads test-ready outputs as an artifact so
+# later jobs don't need to rebuild from scratch.
+# ──────────────────────────────────────────────────────────────────────────────
+jobs:
+  sandbox-build:
+    name: Sandbox Build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build bridge module
+        run: ./gradlew :bridge:assembleDebug :bridge:assembleDebugUnitTest --no-daemon
+
+      - name: Upload bridge test classes
+        uses: actions/upload-artifact@v4
+        with:
+          name: bridge-test-classes
+          path: bridge/build/
+          retention-days: 1
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 2: Sandbox Validation (matrix)
+  # Runs each scenario's targeted test filter in parallel.
+  # ────────────────────────────────────────────────────────────────────────────
+  sandbox-validation:
+    name: Sandbox [${{ matrix.test-scenario }}]
+    needs: sandbox-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - test-scenario: mock-purchases
+            test-filter: "*CoherenceBridgeTest.executePurchasePhase*,*CoherenceBridgeTest.executeFulfillmentPhase*"
+          - test-scenario: receipt-validation
+            test-filter: "*CoherenceBridgeTest.executeFulfillmentPhase*"
+          - test-scenario: subscription-flows
+            test-filter: "*CoherenceBridgeTest.full*"
+          - test-scenario: product-data-query
+            test-filter: "*CoherenceBridgeTest.executeProductDataQuery*"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Download bridge test classes
+        uses: actions/download-artifact@v4
+        with:
+          name: bridge-test-classes
+          path: bridge/build/
+
+      - name: Run scenario -- ${{ matrix.test-scenario }}
+        env:
+          TEST_FILTER: ${{ matrix.test-filter }}
+        run: |
+          echo "Running scenario: ${{ matrix.test-scenario }}"
+          GRADLE_ARGS=(':bridge:testDebugUnitTest' '--no-daemon')
+          IFS=',' read -ra TEST_PATTERNS <<< "${TEST_FILTER}"
+          for pattern in "${TEST_PATTERNS[@]}"; do
+            GRADLE_ARGS+=('--tests' "${pattern}")
+          done
+          ./gradlew "${GRADLE_ARGS[@]}"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.test-scenario }}
+          path: bridge/build/test-results/
+          retention-days: 7
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 3: Full Test Suite
+  # Runs the entire :bridge:testDebugUnitTest task (all tests, no filter).
+  # ────────────────────────────────────────────────────────────────────────────
+  sandbox-full-suite:
+    name: Sandbox Full Suite
+    needs: sandbox-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Download bridge test classes
+        uses: actions/download-artifact@v4
+        with:
+          name: bridge-test-classes
+          path: bridge/build/
+
+      - name: Run full bridge test suite
+        run: ./gradlew :bridge:testDebugUnitTest --no-daemon
+
+      - name: Upload full suite results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-full-suite
+          path: bridge/build/test-results/
+          retention-days: 7
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 4: Self-Healing Agent
+  # Runs only when sandbox-validation failed.
+  # Detects which Sandbox [<scenario>] matrix jobs failed, retries them once
+  # with increased logging, then classifies each as flaky or persistent.
+  # Persists failure pattern history across runs via GitHub Actions cache.
+  # ────────────────────────────────────────────────────────────────────────────
+  self-healing-agent:
+    name: Self-Healing Agent
+    needs: sandbox-validation
+    runs-on: ubuntu-latest
+    if: failure()
+    permissions:
+      contents: read
+      actions: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Download bridge test classes
+        uses: actions/download-artifact@v4
+        with:
+          name: bridge-test-classes
+          path: bridge/build/
+
+      # -- Restore failure-pattern memory from cache -------------------------
+      - name: Restore memory cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ci/self_healing/memory.json
+          key: self-healing-memory-${{ github.ref_name }}
+          restore-keys: |
+            self-healing-memory-
+
+      # -- Detect which scenarios failed ------------------------------------
+      - name: Detect failed scenarios
+        id: detect
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const scenarioMap = {
+              'mock-purchases':     '*CoherenceBridgeTest.executePurchasePhase*,*CoherenceBridgeTest.executeFulfillmentPhase*',
+              'receipt-validation': '*CoherenceBridgeTest.executeFulfillmentPhase*',
+              'subscription-flows': '*CoherenceBridgeTest.full*',
+              'product-data-query': '*CoherenceBridgeTest.executeProductDataQuery*',
+            };
+
+            const { data: jobs } = await github.rest.actions.listJobsForWorkflowRun({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              run_id: context.runId,
+              per_page: 100,
+            });
+
+            const failed = [];
+            for (const job of jobs.jobs) {
+              // Match jobs named "Sandbox [<scenario>]"
+              const m = job.name.match(/^Sandbox \[(.+)\]$/);
+              if (!m) continue;
+              if (job.conclusion !== 'failure') continue;
+              const scenario = m[1];
+              if (!scenarioMap[scenario]) continue;
+              failed.push({ scenario, filter: scenarioMap[scenario] });
+            }
+
+            if (failed.length === 0) {
+              core.info('No Sandbox matrix jobs failed -- nothing to retry.');
+            } else {
+              core.info('Failed scenarios: ' + failed.map(f => f.scenario).join(', '));
+            }
+
+            core.setOutput('matrix', JSON.stringify(failed));
+            core.setOutput('has_failures', String(failed.length > 0));
+
+      # -- Retry each failed scenario and classify --------------------------
+      - name: Retry and classify failed scenarios
+        id: retry
+        if: steps.detect.outputs.has_failures == 'true'
+        env:
+          FAILED_MATRIX: ${{ steps.detect.outputs.matrix }}
+          GH_RUN_ID: ${{ github.run_id }}
+        run: |
+          set +e
+          echo "::group::Self-Healing Agent -- retry loop"
+
+          OVERALL_OUTCOME="success"
+
+          # Write the matrix JSON to a temp file once to avoid repeated parsing
+          MATRIX_FILE="$(mktemp)"
+          echo "${FAILED_MATRIX}" > "${MATRIX_FILE}"
+          SCENARIO_COUNT=$(jq 'length' "${MATRIX_FILE}")
+
+          if [ "${SCENARIO_COUNT}" -eq 0 ]; then
+            echo "No failed scenarios to retry."
+          fi
+
+          for i in $(seq 0 $((SCENARIO_COUNT - 1))); do
+            SCENARIO=$(jq -r ".[$i].scenario" "${MATRIX_FILE}")
+            FILTER=$(jq -r   ".[$i].filter"   "${MATRIX_FILE}")
+
+            echo ""
+            echo "======================================================"
+            echo "Retrying scenario: ${SCENARIO}"
+            echo "  Test filter: ${FILTER}"
+
+            SIGNATURE="${SCENARIO}|CoherenceBridgeTest|retry"
+            node ci/self_healing/update_memory.js report \
+              --scenario "${SCENARIO}" \
+              --signature "${SIGNATURE}" || true
+
+            GRADLE_ARGS=(':bridge:testDebugUnitTest' '--no-daemon' '--info' '--stacktrace')
+            IFS=',' read -ra TEST_PATTERNS <<< "${FILTER}"
+            for pattern in "${TEST_PATTERNS[@]}"; do
+              GRADLE_ARGS+=('--tests' "${pattern}")
+            done
+
+            ./gradlew "${GRADLE_ARGS[@]}"
+            RETRY_EXIT=$?
+
+            if [ "${RETRY_EXIT}" -eq 0 ]; then
+              echo "FLAKY: scenario '${SCENARIO}' passed on retry."
+              node ci/self_healing/update_memory.js record \
+                --scenario "${SCENARIO}" \
+                --signature "${SIGNATURE}" \
+                --outcome flaky \
+                --run-id "${GH_RUN_ID}" || true
+            else
+              echo "PERSISTENT: scenario '${SCENARIO}' failed again."
+              node ci/self_healing/update_memory.js record \
+                --scenario "${SCENARIO}" \
+                --signature "${SIGNATURE}" \
+                --outcome persistent \
+                --run-id "${GH_RUN_ID}" || true
+              OVERALL_OUTCOME="failure"
+            fi
+          done
+
+          echo "::endgroup::"
+          echo "overall_outcome=${OVERALL_OUTCOME}"
+
+          if [ "${OVERALL_OUTCOME}" != "success" ]; then
+            echo "One or more scenarios failed on retry."
+            exit 1
+          fi
+
+      # -- Save updated memory to cache ------------------------------------
+      - name: Save memory cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ci/self_healing/memory.json
+          key: self-healing-memory-${{ github.ref_name }}-${{ github.run_id }}
+
+      # -- Upload memory snapshot as artifact ------------------------------
+      - name: Upload memory snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: self-healing-memory-${{ github.run_id }}
+          path: ci/self_healing/memory.json
+          retention-days: 90
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 5: Sandbox Graduation Check
+  # Decides whether the pipeline result is green, caution, or red.
+  # Must always run so a final status is always published.
+  # ────────────────────────────────────────────────────────────────────────────
+  sandbox-graduation-check:
+    name: Sandbox Graduation Check
+    needs:
+      - sandbox-validation
+      - sandbox-full-suite
+      - self-healing-agent
+    runs-on: ubuntu-latest
+    if: always()
+    permissions:
+      contents: read
+
+    steps:
+      - name: Evaluate pipeline outcome
+        env:
+          VALIDATION: ${{ needs.sandbox-validation.result }}
+          FULL:       ${{ needs.sandbox-full-suite.result }}
+          HEALING:    ${{ needs.self-healing-agent.result }}
+        run: |
+          echo "-- Graduation Check ------------------------------------------"
+          echo "  sandbox-validation : ${VALIDATION}"
+          echo "  sandbox-full-suite : ${FULL}"
+          echo "  self-healing-agent : ${HEALING}"
+          echo "--------------------------------------------------------------"
+
+          if [ "${VALIDATION}" = "success" ] && [ "${FULL}" = "success" ]; then
+            echo "All sandbox tests passed -- ready for staging promotion."
+            exit 0
+          fi
+
+          # self-healing-agent is 'skipped' when sandbox-validation succeeded
+          # (no failures to heal). Treat skipped as a pass for this check.
+          if [ "${HEALING}" = "success" ] || [ "${HEALING}" = "skipped" ]; then
+            if [ "${FULL}" = "success" ]; then
+              echo "Recovered via self-healing (flaky tests detected). Full suite passed. Proceed with caution."
+              exit 0
+            fi
+          fi
+
+          echo "Sandbox graduation check FAILED."
+          echo "  Validation: ${VALIDATION}  Full-Suite: ${FULL}  Healing: ${HEALING}"
+          exit 1
