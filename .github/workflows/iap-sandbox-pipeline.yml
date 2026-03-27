@@ -1,0 +1,184 @@
+name: Amazon IAP Sandbox Testing Pipeline
+
+# Runs on pushes and PRs to main as well as any feature branch.
+# The bridge unit tests act as the sandbox: every IAP call is mocked via
+# the IapService interface, so no real Appstore connection is required.
+on:
+  push:
+    branches:
+      - "main"
+      - "feature/**"
+      - "fix/**"
+  pull_request:
+    branches:
+      - "main"
+  workflow_dispatch:
+
+env:
+  IAP_ENVIRONMENT: sandbox
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 1: Build validation
+  # Ensures the project compiles cleanly before running any sandbox tests.
+  # ──────────────────────────────────────────────────────────────────────────
+  sandbox-build:
+    name: Sandbox Build Validation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build all modules
+        run: ./gradlew build --no-daemon
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 2: Sandbox validation
+  # Runs the bridge JVM unit tests which mock all IAP/PurchasingService calls.
+  # Each test scenario maps to a Gradle test-class filter so the matrix
+  # produces one results artifact per scenario.
+  #
+  # Test scenarios and their coverage:
+  #   mock-purchases     — purchase flow, fulfillment, consumable & subscription SKUs
+  #   receipt-validation — fulfillment status validation (FULFILLED / UNAVAILABLE)
+  #   subscription-flows — full five-phase lifecycle integration tests
+  #   product-data-query — product SKU data retrieval (consumable / non-consumable)
+  # ──────────────────────────────────────────────────────────────────────────
+  sandbox-validation:
+    name: "Sandbox [${{ matrix.test-scenario }}]"
+    needs: sandbox-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - test-scenario: mock-purchases
+            test-filter: "*CoherenceBridgeTest.executePurchasePhase*,*CoherenceBridgeTest.executeFulfillmentPhase*"
+          - test-scenario: receipt-validation
+            test-filter: "*CoherenceBridgeTest.executeFulfillmentPhase*"
+          - test-scenario: subscription-flows
+            test-filter: "*CoherenceBridgeTest.full*"
+          - test-scenario: product-data-query
+            test-filter: "*CoherenceBridgeTest.executeProductDataQuery*"
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: "Run sandbox tests — ${{ matrix.test-scenario }}"
+        env:
+          TEST_FILTER: ${{ matrix.test-filter }}
+        run: |
+          # Each scenario runs the matching subset of CoherenceBridgeTest.
+          # IapService is mocked (MockK) so no real Appstore connection is needed.
+          # --tests accepts a comma-separated list for multiple patterns.
+          ./gradlew :bridge:test --no-daemon --tests "${TEST_FILTER}"
+
+      - name: Upload JUnit test report (${{ matrix.test-scenario }})
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sandbox-test-report-${{ matrix.test-scenario }}
+          path: bridge/build/reports/tests/**
+          if-no-files-found: ignore
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 3: Full sandbox suite (safety net)
+  # Runs the complete CoherenceBridgeTest class to catch any test that may
+  # not be covered by the scenario filters above.
+  # ──────────────────────────────────────────────────────────────────────────
+  sandbox-full-suite:
+    name: Sandbox Full Test Suite
+    needs: sandbox-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Run complete bridge unit test suite
+        run: ./gradlew :bridge:test --no-daemon
+
+      - name: Upload full JUnit test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sandbox-test-report-full
+          path: bridge/build/reports/tests/**
+          if-no-files-found: ignore
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 4: Sandbox graduation check
+  # Verifies that all scenario jobs and the full suite passed before
+  # declaring the sandbox pipeline green for promotion.
+  # ──────────────────────────────────────────────────────────────────────────
+  sandbox-graduation-check:
+    name: Sandbox Graduation Check
+    needs:
+      - sandbox-validation
+      - sandbox-full-suite
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    if: always()
+
+    steps:
+      - name: Check all sandbox jobs passed
+        shell: bash
+        run: |
+          VALIDATION="${{ needs.sandbox-validation.result }}"
+          FULL="${{ needs.sandbox-full-suite.result }}"
+
+          echo "sandbox-validation result : ${VALIDATION}"
+          echo "sandbox-full-suite result  : ${FULL}"
+
+          if [ "${VALIDATION}" = "success" ] && [ "${FULL}" = "success" ]; then
+            echo ""
+            echo "All sandbox tests passed - ready for staging promotion."
+          else
+            echo ""
+            echo "Sandbox graduation check FAILED."
+            echo "Fix failing tests before promoting to staging."
+            exit 1
+          fi
