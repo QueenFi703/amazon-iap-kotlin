@@ -51,37 +51,35 @@ dependencies {
     testImplementation 'io.mockk:mockk:1.13.8'
 }
 
-group = 'com.queenfi.aster'
-version = '0.1.0'
-
 afterEvaluate {
     publishing {
         publications {
             release(MavenPublication) {
                 from components.release
-                groupId = 'com.queenfi.aster'
+
+                groupId    = 'com.queenfi.aster'
                 artifactId = 'bridge'
-                version = '0.1.0'
+                version    = '0.1.0'
             }
         }
+
         repositories {
             maven {
                 name = 'CodeArtifact'
-                // URL is constructed from env vars injected by the CI workflow.
-                // If any variable is absent the repository URL will be a placeholder
-                // and the publish task will fail fast with a clear error.
-                def domain      = System.env.CODEARTIFACT_DOMAIN      ?: ''
-                def owner       = System.env.CODEARTIFACT_DOMAIN_OWNER ?: ''
-                def region      = System.env.AWS_REGION               ?: 'us-east-1'
-                def repository  = System.env.CODEARTIFACT_REPOSITORY  ?: ''
-                if (domain && owner && repository) {
-                    url = "https://${domain}-${owner}.d.codeartifact.${region}.amazonaws.com/maven/${repository}/"
-                } else {
-                    url = 'https://codeartifact.placeholder.invalid/maven/placeholder/'
-                }
+                // URL constructed from env vars supplied by the CI workflow:
+                // CODEARTIFACT_DOMAIN, CODEARTIFACT_DOMAIN_OWNER,
+                // CODEARTIFACT_REPOSITORY (region is always us-east-1)
+                def domain     = System.getenv('CODEARTIFACT_DOMAIN')      ?: ''
+                def owner      = System.getenv('CODEARTIFACT_DOMAIN_OWNER') ?: ''
+                def repository = System.getenv('CODEARTIFACT_REPOSITORY')  ?: ''
+                url = uri(
+                    domain && owner && repository
+                        ? "https://${domain}-${owner}.d.codeartifact.us-east-1.amazonaws.com/maven/${repository}/"
+                        : "file://${rootProject.buildDir}/local-maven-repo"
+                )
                 credentials {
                     username = 'aws'
-                    password = System.env.CODEARTIFACT_AUTH_TOKEN ?: ''
+                    password = System.getenv('CODEARTIFACT_AUTH_TOKEN') ?: ''
                 }
             }
         }
