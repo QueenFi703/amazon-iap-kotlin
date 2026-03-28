@@ -17,7 +17,7 @@ The workflow `.github/workflows/aws-gradle-pipeline.yml` builds the Android app 
 | `build` | Always | Gradle build, unit tests, APK/AAB assembly, GitHub artifact upload |
 | `publish_s3` | `main` branch only | Creates S3 bucket if missing; uploads artifacts + manifest |
 | `publish_codeartifact` | `main` + CA vars set | Publishes `:bridge` (`com.queenfi.aster:bridge:0.1.0`) to CodeArtifact |
-| `device_farm` | `main` + ARN secrets set | Uploads release APK to Device Farm as `ANDROID_APP` |
+| `device_farm` | `main` + ARN vars set | Uploads release APK to Device Farm as `ANDROID_APP` |
 
 ---
 
@@ -29,8 +29,6 @@ Add these in **Settings → Secrets and variables → Actions → Secrets**.
 |---|---|
 | `AWS_ACCESS_KEY_ID` | Long-lived AWS access key ID |
 | `AWS_SECRET_ACCESS_KEY` | Long-lived AWS secret access key |
-| `DEVICE_FARM_PROJECT_ARN` | *(optional)* Device Farm project ARN — enables the `device_farm` job |
-| `DEVICE_FARM_DEVICE_POOL_ARN` | *(optional)* Device Farm device pool ARN — enables the `device_farm` job |
 
 ---
 
@@ -39,12 +37,15 @@ Add these in **Settings → Secrets and variables → Actions → Secrets**.
 Add these in **Settings → Secrets and variables → Actions → Variables**.
 
 The `publish_codeartifact` job is **skipped automatically** when any of the three CodeArtifact variables are absent or empty.
+The `device_farm` job is **skipped automatically** when either Device Farm ARN variable is absent or empty.
 
 | Variable | Example | Description |
 |---|---|---|
 | `CODEARTIFACT_DOMAIN` | `my-domain` | CodeArtifact domain name |
 | `CODEARTIFACT_REPOSITORY` | `my-repo` | CodeArtifact repository name |
 | `CODEARTIFACT_DOMAIN_OWNER` | `475559502137` | 12-digit AWS account ID that owns the domain |
+| `DEVICE_FARM_PROJECT_ARN` | `arn:aws:devicefarm:us-west-2:…:project:…` | *(optional)* Device Farm project ARN — enables the `device_farm` job |
+| `DEVICE_FARM_DEVICE_POOL_ARN` | `arn:aws:devicefarm:us-west-2:…:devicepool:…` | *(optional)* Device Farm device pool ARN — enables the `device_farm` job |
 
 ---
 

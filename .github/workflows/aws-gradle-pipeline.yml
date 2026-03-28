@@ -166,8 +166,8 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       github.ref == 'refs/heads/main' &&
-      secrets.DEVICE_FARM_PROJECT_ARN != '' &&
-      secrets.DEVICE_FARM_DEVICE_POOL_ARN != ''
+      vars.DEVICE_FARM_PROJECT_ARN != '' &&
+      vars.DEVICE_FARM_DEVICE_POOL_ARN != ''
 
     steps:
       - uses: actions/checkout@v6
@@ -196,7 +196,7 @@ jobs:
           echo "Uploading APK: ${APK}"
 
           UPLOAD_ARN="$(aws devicefarm create-upload \
-            --project-arn "${{ secrets.DEVICE_FARM_PROJECT_ARN }}" \
+            --project-arn "${{ vars.DEVICE_FARM_PROJECT_ARN }}" \
             --name "app-${GITHUB_SHA}.apk" \
             --type ANDROID_APP \
             --query upload.arn \
