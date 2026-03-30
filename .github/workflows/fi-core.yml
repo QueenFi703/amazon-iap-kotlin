@@ -1,0 +1,144 @@
+name: fi-core — Self-Healing Pipeline
+
+# ── Triggers ─────────────────────────────────────────────────────────────────
+#
+# 1. workflow_dispatch — manual trigger (pass a base64-encoded failure log via
+#    the `failure_log_b64` input for full analysis, or leave blank to test the
+#    orchestration path with an empty log).
+#
+# 2. repository_dispatch — called by QueenFi703/actions (the control-tower)
+#    when a downstream CI failure is detected.  Expected payload:
+#      { "failure_log_b64": "<base64-encoded log>", "run_id": "<run-id>" }
+#
+# 3. workflow_run — automatically fires after the Android CI workflow
+#    completes with a "failure" conclusion so healing is fully autonomous.
+
+on:
+  workflow_dispatch:
+    inputs:
+      failure_log_b64:
+        description: "Base64-encoded CI failure log (optional)"
+        required: false
+        default: ""
+
+  repository_dispatch:
+    types: [fi-core-heal]
+
+  workflow_run:
+    workflows: ["Android CI"]
+    types: [completed]
+
+# ── Permissions ───────────────────────────────────────────────────────────────
+permissions:
+  contents: write
+  pull-requests: write
+  checks: write
+
+jobs:
+  # ── Guard: only run when the triggering workflow actually failed ─────────────
+  should-heal:
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.gate.outputs.proceed }}
+    steps:
+      - name: Determine whether healing is needed
+        id: gate
+        run: |
+          CONCLUSION="${{ github.event.workflow_run.conclusion }}"
+          EVENT="${{ github.event_name }}"
+
+          if [[ "$EVENT" == "workflow_run" ]]; then
+            if [[ "$CONCLUSION" == "failure" || "$CONCLUSION" == "timed_out" ]]; then
+              echo "proceed=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "Workflow concluded with '${CONCLUSION}' — no healing required."
+              echo "proceed=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            # workflow_dispatch / repository_dispatch always proceed
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ── Main healing job ──────────────────────────────────────────────────────────
+  heal:
+    needs: should-heal
+    if: needs.should-heal.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+
+    env:
+      GH_PAT: ${{ secrets.GH_PAT }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Use GH_PAT so that the bot can push the heal branch and open PRs.
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      # ── Capture the failure log ──────────────────────────────────────────────
+      - name: Decode and write failure log
+        id: write-log
+        shell: bash
+        run: |
+          LOG_PATH="${RUNNER_TEMP}/failure.log"
+
+          # Prefer base64 log from dispatch payload, fall back to empty file.
+          if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+            B64="${{ github.event.client_payload.failure_log_b64 }}"
+          else
+            B64="${{ inputs.failure_log_b64 }}"
+          fi
+
+          if [[ -n "$B64" ]]; then
+            echo "$B64" | base64 --decode > "$LOG_PATH"
+          else
+            # Attempt to fetch the log from the triggering workflow_run via gh CLI
+            if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+              RUN_ID="${{ github.event.workflow_run.id }}"
+              if ! gh run view "$RUN_ID" --log > "$LOG_PATH" 2>&1; then
+              echo "::warning::Failed to fetch run log for run_id=${RUN_ID}; healing will proceed with an empty log."
+              touch "$LOG_PATH"
+            fi
+            else
+              touch "$LOG_PATH"
+            fi
+          fi
+
+          echo "log_path=${LOG_PATH}" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+
+      # ── Set up Node.js + TypeScript ──────────────────────────────────────────
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install TypeScript dependencies
+        run: npm ci --ignore-scripts
+
+      # ── Run DOT orchestrator ─────────────────────────────────────────────────
+      - name: Run fi-core DOT orchestrator
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_WORKFLOW: ${{ github.workflow }}
+          FAILURE_LOG: ${{ steps.write-log.outputs.log_path }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          npx ts-node \
+            --esm \
+            --project tsconfig.json \
+            .ai/bootstrap/init.ts
+
+      # ── Surface summary ──────────────────────────────────────────────────────
+      - name: Report outcome
+        if: always()
+        run: |
+          echo "### fi-core healing run complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "Triggered by: \`${{ github.event_name }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "SHA: \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
