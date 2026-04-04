@@ -23,7 +23,7 @@ plugins {
 }
 
 android {
-    compileSdk 34
+    compileSdk 33
     namespace 'com.queenfi.aster.bridge'
 
     defaultConfig {

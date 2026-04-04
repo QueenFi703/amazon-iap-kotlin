@@ -21,11 +21,7 @@ package com.queenfi.aster.bridge
 import android.content.Context
 import com.amazon.device.iap.PurchasingListener
 import com.amazon.device.iap.model.FulfillmentResult
-import com.amazon.device.iap.model.ProductDataResponse
-import com.amazon.device.iap.model.PurchaseResponse
-import com.amazon.device.iap.model.PurchaseUpdatesResponse
 import com.amazon.device.iap.model.RequestId
-import com.amazon.device.iap.model.UserDataResponse
 
 /**
  * BridgeContext represents the external runtime context (e.g. an Aster/Python layer)
@@ -62,7 +58,6 @@ class CoherenceBridge(
 ) {
 
     private var bridgeContext: BridgeContext? = null
-    private var purchasingListener: PurchasingListener? = null
 
     // ─────────────────────────────────────────────────────────────────────────
     // Phase 1: Init — establish context
@@ -70,7 +65,10 @@ class CoherenceBridge(
 
     /**
      * Initialize the bridge with the provided [BridgeContext].
-     * Must be called before any other phase.
+     * Must be called before [reportPhase] or [cleanupPhase] to ensure the host
+     * runtime receives results and cleanup notifications. [preparePhase] and the
+     * execute methods operate independently of [BridgeContext] and may be called
+     * without a prior [initPhase].
      */
     fun initPhase(ctx: BridgeContext): CoherenceBridge {
         bridgeContext = ctx
@@ -86,7 +84,6 @@ class CoherenceBridge(
      * Returns the [RequestId] produced by [IapService.getUserData].
      */
     fun preparePhase(listener: PurchasingListener): RequestId {
-        purchasingListener = listener
         iapService.registerListener(context, listener)
         return iapService.getUserData()
     }
@@ -137,7 +134,6 @@ class CoherenceBridge(
      * Release all resources and notify the [BridgeContext] to perform its own cleanup.
      */
     fun cleanupPhase() {
-        purchasingListener = null
         bridgeContext?.cleanup()
         bridgeContext = null
     }
