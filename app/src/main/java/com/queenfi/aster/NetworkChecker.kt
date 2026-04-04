@@ -16,20 +16,27 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-package com.example.iapdemo;
+package com.queenfi.aster
 
-import org.junit.Test;
-
-import static org.junit.Assert.*;
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.os.Build
 
 /**
- * Example local unit test, which will execute on the development machine (host).
+ * Returns true if the device has an active network with internet capability.
  *
- * @see <a href="http://d.android.com/tools/testing">Testing documentation</a>
+ * Uses [NetworkCapabilities] on API 23+ and falls back to the deprecated
+ * [android.net.NetworkInfo] API for API 21–22 (minSdk 21).
  */
-public class ExampleUnitTest {
-    @Test
-    public void addition_isCorrect() {
-        assertEquals(4, 2 + 2);
+fun isNetworkAvailable(context: Context): Boolean {
+    val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        val network = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(network) ?: return false
+        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    } else {
+        @Suppress("DEPRECATION")
+        cm.activeNetworkInfo?.isConnected == true
     }
 }

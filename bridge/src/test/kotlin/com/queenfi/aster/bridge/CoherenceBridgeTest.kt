@@ -223,6 +223,34 @@ class CoherenceBridgeTest {
         bridge.reportPhase("orphan-result")
     }
 
+    // ── Publish and print ─────────────────────────────────────────────────────
+
+    @Test
+    fun `publishAndPrint forwards result to bridgeContext`() {
+        bridge.initPhase(mockBridgeContext)
+
+        val payload = "receipt-id-pub-001"
+        bridge.publishAndPrint("TEST_TAG", payload)
+
+        verify(exactly = 1) { mockBridgeContext.report(payload) }
+    }
+
+    @Test
+    fun `publishAndPrint does not throw when initPhase was not called`() {
+        // Must be safe even without an initialised BridgeContext
+        bridge.publishAndPrint("TEST_TAG", "no-context-payload")
+    }
+
+    @Test
+    fun `publishAndPrint accepts structured map payloads`() {
+        bridge.initPhase(mockBridgeContext)
+
+        val payload = mapOf("receiptId" to "r-pub-002", "sku" to "techmonthly", "status" to "FULFILLED")
+        bridge.publishAndPrint("TEST_TAG", payload)
+
+        verify(exactly = 1) { mockBridgeContext.report(payload) }
+    }
+
     // ── Phase 5: Cleanup ─────────────────────────────────────────────────────
 
     @Test

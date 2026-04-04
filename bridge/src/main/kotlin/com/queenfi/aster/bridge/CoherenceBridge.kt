@@ -19,6 +19,7 @@
 package com.queenfi.aster.bridge
 
 import android.content.Context
+import android.util.Log
 import com.amazon.device.iap.PurchasingListener
 import com.amazon.device.iap.model.FulfillmentResult
 import com.amazon.device.iap.model.ProductDataResponse
@@ -127,6 +128,19 @@ class CoherenceBridge(
      */
     fun reportPhase(result: Any) {
         bridgeContext?.report(result)
+    }
+
+    /**
+     * Publish [result] to the registered [BridgeContext] and print it to the log.
+     *
+     * This is a convenience wrapper over [reportPhase] that guarantees every
+     * published event also produces a human-readable log line tagged with [tag].
+     * Use this whenever an IAP event should be both broadcast to the host runtime
+     * and surfaced in the device log for diagnostics.
+     */
+    fun publishAndPrint(tag: String, result: Any) {
+        Log.i(tag, "PUBLISH: $result")
+        reportPhase(result)
     }
 
     // ─────────────────────────────────────────────────────────────────────────

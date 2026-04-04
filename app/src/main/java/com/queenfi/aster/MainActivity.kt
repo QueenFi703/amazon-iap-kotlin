@@ -16,7 +16,7 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-package com.example.iapdemo
+package com.queenfi.aster
 
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
@@ -31,8 +31,10 @@ import com.amazon.device.iap.model.ProductDataResponse
 import com.amazon.device.iap.model.PurchaseResponse
 import com.amazon.device.iap.model.FulfillmentResult
 import com.amazon.device.iap.model.PurchaseUpdatesResponse
+import com.amazon.device.iap.model.Receipt
+import com.amazon.device.iap.model.Product
 import androidx.recyclerview.widget.LinearLayoutManager
-import com.example.iapdemo.databinding.ActivityMainBinding
+import com.queenfi.aster.databinding.ActivityMainBinding
 import java.util.*
 
 const val parentSKU = "techsubscription"
@@ -41,6 +43,9 @@ private const val TAG = "KOTLIN_INTEGRATION"
 private const val PREFS_NAME = "iap_cache"
 private const val PREFS_KEY_PRODUCTS = "cached_product_skus"
 private const val PREFS_KEY_SUBSCRIPTION = "subscription_active"
+private const val PREFS_KEY_USER_ID = "cached_user_id"
+private const val PREFS_KEY_MARKETPLACE = "cached_marketplace"
+private const val PREFS_KEY_RECEIPT_IDS = "cached_receipt_ids"
 
 class MainActivity : AppCompatActivity() {
 
@@ -74,6 +79,18 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
 
+        // Restart the purchasing agent listener before the network firewall check.
+        PurchasingService.registerListener(this, purchasingListener)
+        Log.v(TAG, "Restarting PurchasingListener before network check")
+
+        // Firewall check: verify network access before issuing any IAP queries.
+        if (!isNetworkAvailable(this)) {
+            Log.w(TAG, "Network unavailable; skipping IAP queries and using cached state")
+            Toast.makeText(this, "No network connection. Using cached data.", Toast.LENGTH_LONG).show()
+            restoreCachedSubscriptionState()
+            return
+        }
+
         //getUserData() will query the Appstore for the Users information
         PurchasingService.getUserData()
 
@@ -99,6 +116,36 @@ class MainActivity : AppCompatActivity() {
     private fun cacheSubscriptionActive(active: Boolean) {
         prefs.edit().putBoolean(PREFS_KEY_SUBSCRIPTION, active).apply()
         Log.v(TAG, "Cached subscription active = $active")
+    }
+
+    /** Persist the current user ID and marketplace to SharedPreferences. */
+    private fun saveUserData(userId: String, marketplace: String) {
+        prefs.edit()
+            .putString(PREFS_KEY_USER_ID, userId)
+            .putString(PREFS_KEY_MARKETPLACE, marketplace)
+            .apply()
+        Log.v(TAG, "Saved user data: userId=$userId marketplace=$marketplace")
+    }
+
+    /** Persist the set of active (non-cancelled) receipt IDs to SharedPreferences. */
+    private fun saveReceiptIds(receiptIds: Set<String>) {
+        prefs.edit().putStringSet(PREFS_KEY_RECEIPT_IDS, receiptIds).apply()
+        Log.v(TAG, "Saved ${receiptIds.size} active receipt ID(s)")
+    }
+
+    /**
+     * Reload userId and marketplace from SharedPreferences into the in-memory
+     * fields.  Called when the Appstore returns a FAILED status so the app
+     * continues to function with the last known identity.
+     */
+    private fun restoreCachedUserData() {
+        val userId = prefs.getString(PREFS_KEY_USER_ID, null)
+        val marketplace = prefs.getString(PREFS_KEY_MARKETPLACE, null)
+        if (userId != null && marketplace != null) {
+            currentUserId = userId
+            currentMarketplace = marketplace
+            Log.v(TAG, "Restored user data from cache: userId=$userId marketplace=$marketplace")
+        }
     }
 
     /**
@@ -127,6 +174,40 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ── Publish & print helpers ──────────────────────────────────────────────
+
+    /**
+     * Print a structured summary of [receipt] to the log.
+     * Covers receipt ID, SKU, type, purchase date, and cancellation state.
+     */
+    private fun printReceiptDetails(receipt: Receipt) {
+        Log.i(TAG, buildString {
+            appendLine("┌── Receipt ──────────────────────────────")
+            appendLine("│  ID       : ${receipt.receiptId}")
+            appendLine("│  SKU      : ${receipt.sku}")
+            appendLine("│  Type     : ${receipt.productType}")
+            appendLine("│  Purchased: ${receipt.purchaseDate}")
+            appendLine("│  Canceled : ${receipt.isCanceled}")
+            append    ("└─────────────────────────────────────────")
+        })
+    }
+
+    /**
+     * Print a structured summary of [product] to the log.
+     * Covers title, SKU, type, price, and description.
+     */
+    private fun printProductDetails(product: Product) {
+        Log.i(TAG, buildString {
+            appendLine("┌── Product ──────────────────────────────")
+            appendLine("│  Title      : ${product.title}")
+            appendLine("│  SKU        : ${product.sku}")
+            appendLine("│  Type       : ${product.productType}")
+            appendLine("│  Price      : ${product.price}")
+            appendLine("│  Description: ${product.description}")
+            append    ("└─────────────────────────────────────────")
+        })
+    }
+
     // ── PurchasingListener ───────────────────────────────────────────────────
 
     private var purchasingListener: PurchasingListener = object : PurchasingListener {
@@ -136,7 +217,13 @@ class MainActivity : AppCompatActivity() {
                 UserDataResponse.RequestStatus.SUCCESSFUL -> {
                     currentUserId = response.userData.userId
                     currentMarketplace = response.userData.marketplace
-                    Log.v(TAG, response.userData.toString())
+                    saveUserData(currentUserId, currentMarketplace)
+                    Log.i(TAG, buildString {
+                        appendLine("┌── UserData ──────────────────────────────")
+                        appendLine("│  UserID     : ${response.userData.userId}")
+                        appendLine("│  Marketplace: ${response.userData.marketplace}")
+                        append    ("└──────────────────────────────────────────")
+                    })
                 }
                 UserDataResponse.RequestStatus.NOT_SUPPORTED -> {
                     // Running outside the Amazon Appstore / sandbox agent.
@@ -149,6 +236,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 UserDataResponse.RequestStatus.FAILED, null -> {
                     Log.e(TAG, "getUserData failed; falling back to cached state")
+                    restoreCachedUserData()
                     restoreCachedSubscriptionState()
                 }
             }
@@ -161,11 +249,7 @@ class MainActivity : AppCompatActivity() {
                     Log.v(TAG, "ProductDataResponse.RequestStatus SUCCESSFUL")
                     val products = productDataResponse.productData
                     for (key in products.keys) {
-                        val product = products[key]
-                        Log.v(
-                            TAG,
-                            "Product: ${product!!.title} \n Type: ${product.productType}\n SKU: ${product.sku}\n Price: ${product.price}\n Description: ${product.description}\n"
-                        )
+                        products[key]?.let { printProductDetails(it) }
                     }
                     binding.productsRecyclerView.adapter = ProductAdapter(products.values.toList())
                     // Cache the available SKUs for offline / outside-sandbox use.
@@ -190,7 +274,7 @@ class MainActivity : AppCompatActivity() {
             when (purchaseResponse.requestStatus) {
                 PurchaseResponse.RequestStatus.SUCCESSFUL -> {
                     Log.v(TAG, "PurchaseResponse.RequestStatus SUCCESSFUL")
-                    Log.v(TAG, purchaseResponse.receipt.toString())
+                    printReceiptDetails(purchaseResponse.receipt)
                     PurchasingService.notifyFulfillment(
                         purchaseResponse.receipt.receiptId,
                         FulfillmentResult.FULFILLED
@@ -212,7 +296,7 @@ class MainActivity : AppCompatActivity() {
                     Log.v(TAG, "PurchaseUpdatesResponse.RequestStatus SUCCESSFUL")
                     var hasActiveSubscription = false
                     for (receipt in response.receipts) {
-                        Log.v(TAG, receipt.toString())
+                        printReceiptDetails(receipt)
                         if (!receipt.isCanceled) {
                             hasActiveSubscription = true
                         }

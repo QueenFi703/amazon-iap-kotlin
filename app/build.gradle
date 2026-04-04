@@ -25,7 +25,7 @@ android {
     compileSdk 33
 
     defaultConfig {
-        applicationId "Kotlin_IAP_Test_App.example.myapp"
+        applicationId "com.queenfi.aster"
         minSdk 21
         targetSdk 33
         versionCode 1
@@ -52,7 +52,7 @@ android {
         viewBinding true
     }
 
-    namespace 'com.example.iapdemo'
+    namespace 'com.queenfi.aster'
 }
 
 dependencies {
