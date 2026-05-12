@@ -22,7 +22,6 @@ import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.content.SharedPreferences
 import android.graphics.Color
-import com.amazon.device.iap.PurchasingService
 import android.util.Log
 import android.widget.Toast
 import com.amazon.device.iap.PurchasingListener
@@ -33,7 +32,6 @@ import com.amazon.device.iap.model.FulfillmentResult
 import com.amazon.device.iap.model.PurchaseUpdatesResponse
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.example.iapdemo.databinding.ActivityMainBinding
-import java.util.*
 
 const val parentSKU = "techsubscription"
 
@@ -48,6 +46,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var currentMarketplace: String
     private lateinit var binding: ActivityMainBinding
     private lateinit var prefs: SharedPreferences
+    private lateinit var iapService: IapService
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -57,6 +56,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(view)
 
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        iapService = RealIapService(this)
 
         binding.productsRecyclerView.layoutManager = LinearLayoutManager(this)
 
@@ -64,10 +64,10 @@ class MainActivity : AppCompatActivity() {
         // even before the Appstore responds (offline / outside-sandbox fallback).
         restoreCachedSubscriptionState()
 
-        PurchasingService.registerListener(this, purchasingListener)
+        iapService.registerListener(purchasingListener)
         Log.v(TAG, "Registering PurchasingListener")
 
-        binding.subscriptionButton.setOnClickListener { PurchasingService.purchase(parentSKU) }
+        binding.subscriptionButton.setOnClickListener { iapService.purchase(parentSKU) }
 
     }
 
@@ -75,15 +75,15 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
 
         //getUserData() will query the Appstore for the Users information
-        PurchasingService.getUserData()
+        iapService.getUserData()
 
         //getPurchaseUpdates() will query the Appstore for any previous purchase
-        PurchasingService.getPurchaseUpdates(true)
+        iapService.getPurchaseUpdates(true)
 
         //getProductData will validate the SKUs with Amazon Appstore
         val productSkus = hashSetOf("techquarterly","techmonthly")
 
-        PurchasingService.getProductData(productSkus)
+        iapService.getProductData(productSkus)
         Log.v(TAG, "Validating SKUs with Amazon")
     }
 
@@ -111,6 +111,11 @@ class MainActivity : AppCompatActivity() {
                 text = "SUBSCRIBED"
                 setTextColor(Color.RED)
             }
+        } else {
+            binding.textView.apply {
+                text = "NOT SUBSCRIBED"
+                setTextColor(Color.DKGRAY)
+            }
         }
     }
 
@@ -121,8 +126,8 @@ class MainActivity : AppCompatActivity() {
      */
     private fun restoreCachedSubscriptionState() {
         val active = prefs.getBoolean(PREFS_KEY_SUBSCRIPTION, false)
+        updateSubscriptionUI(active)
         if (active) {
-            updateSubscriptionUI(true)
             Log.v(TAG, "Restored subscription state from cache")
         }
     }
@@ -167,7 +172,8 @@ class MainActivity : AppCompatActivity() {
                             "Product: ${product!!.title} \n Type: ${product.productType}\n SKU: ${product.sku}\n Price: ${product.price}\n Description: ${product.description}\n"
                         )
                     }
-                    binding.productsRecyclerView.adapter = ProductAdapter(products.values.toList())
+                    val sortedProducts = products.values.sortedBy { it.sku }
+                    binding.productsRecyclerView.adapter = ProductAdapter(sortedProducts)
                     // Cache the available SKUs for offline / outside-sandbox use.
                     cacheProductSkus(products.keys)
                     for (s in productDataResponse.unavailableSkus) {
@@ -191,7 +197,7 @@ class MainActivity : AppCompatActivity() {
                 PurchaseResponse.RequestStatus.SUCCESSFUL -> {
                     Log.v(TAG, "PurchaseResponse.RequestStatus SUCCESSFUL")
                     Log.v(TAG, purchaseResponse.receipt.toString())
-                    PurchasingService.notifyFulfillment(
+                    iapService.notifyFulfillment(
                         purchaseResponse.receipt.receiptId,
                         FulfillmentResult.FULFILLED
                     )
@@ -222,7 +228,7 @@ class MainActivity : AppCompatActivity() {
                     // Persist the subscription state so it survives outside-sandbox runs.
                     cacheSubscriptionActive(hasActiveSubscription)
                     if (response.hasMore()) {
-                        PurchasingService.getPurchaseUpdates(true)
+                        iapService.getPurchaseUpdates(true)
                     }
                 }
                 PurchaseUpdatesResponse.RequestStatus.FAILED -> {

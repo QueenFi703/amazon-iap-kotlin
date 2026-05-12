@@ -25,4 +25,3 @@ dependencyResolutionManagement {
 }
 rootProject.name = "MyAmazonIAPTestApp"
 include ':app'
-include ':bridge'
