@@ -1,0 +1,16 @@
+{
+  "name": "amazon-iap-kotlin-fi-core",
+  "version": "1.0.0",
+  "description": "fi-core self-healing orchestration for the amazon-iap-kotlin pipeline",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "heal": "node --loader ts-node/esm .ai/bootstrap/init.ts",
+    "heal:compiled": "node dist/.ai/bootstrap/init.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.4"
+  }
+}
