@@ -41,6 +41,10 @@ You can now run the demo app!
 You can use this demo as a starting point to build a Kotlin app with an integration to the Amazon IAP API. 
 To learn more about the API you can check out the [documentation](https://developer.amazon.com/docs/in-app-purchasing/iap-overview.html) or the [YouTube series](https://www.youtube.com/watch?v=cmPAY16wGb0_) I created.
 
+## 🤝 Contributing
+
+Contributions are welcome! Please read our [Contributing Guidelines](CONTRIBUTING.md) before submitting a pull request or opening an issue.
+
 ## Get support
 If you found a bug or want to suggest a new [feature/use case/sample], please [file an issue](../../issues).
 
