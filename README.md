@@ -57,6 +57,64 @@ Get the most up to date Amazon Appstore developer news, product releases, tutori
 
 * 📧 Sign up for the [Developer Newsletter](https://m.amazonappservices.com/devto-newsletter-subscribe)
 
+## 🔍 Checking GitHub Actions runs with GitHub CLI
+
+Use the included helper script (`scripts/gh-actions-run.sh`) to inspect any workflow run programmatically — no browser required.
+
+### Install GitHub CLI
+
+| Platform | Command |
+|----------|---------|
+| macOS    | `brew install gh` |
+| Ubuntu/Debian | `sudo apt install gh` |
+| Fedora/RHEL | `sudo dnf install gh` |
+| Windows  | `winget install GitHub.cli` |
+| All platforms | [cli.github.com](https://cli.github.com/) |
+
+### Authenticate once
+
+```bash
+gh auth login
+gh auth status        # verify
+```
+
+### Quick-start: inspect run `23652704571`
+
+```bash
+# Summary (status, conclusion, branch, SHA)
+./scripts/gh-actions-run.sh -R QueenFi703/amazon-iap-kotlin 23652704571
+
+# Identical — pass the full URL instead of the run id
+./scripts/gh-actions-run.sh \
+  https://github.com/QueenFi703/amazon-iap-kotlin/actions/runs/23652704571
+
+# Stream the full log
+./scripts/gh-actions-run.sh -R QueenFi703/amazon-iap-kotlin 23652704571 --log
+
+# Machine-readable JSON (status, conclusion, branch, SHA, timestamps, URL + jobs)
+./scripts/gh-actions-run.sh -R QueenFi703/amazon-iap-kotlin 23652704571 --json
+```
+
+### List recent runs on `main`
+
+```bash
+gh run list -R QueenFi703/amazon-iap-kotlin --branch main --limit 10
+```
+
+### Re-run failed jobs
+
+```bash
+gh run rerun 23652704571 -R QueenFi703/amazon-iap-kotlin --failed
+```
+
+### Trigger a fresh `workflow_dispatch` run
+
+```bash
+gh workflow run "AWS Gradle Pipeline (S3 + CodeArtifact + Device Farm)" \
+  -R QueenFi703/amazon-iap-kotlin \
+  --ref main
+```
+
 ## Authors
 
 - [@anishamalde](https://anisha.dev)
